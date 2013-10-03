@@ -9,69 +9,87 @@
 #import "CardGameViewController.h"
 #import "PlayingCardDeck.h"
 #import "CardMatchingGame.h"
+#import "ScoreViewController.h"
+#import "Score.h"
+#import "PlayingCard.h"
 
 @interface CardGameViewController ()
 @property (weak, nonatomic) IBOutlet UILabel *flipsLabel;
-@property (nonatomic) int flipCount;
 @property (strong, nonatomic) IBOutletCollection(UIButton) NSArray *cardButtons;
 @property (weak, nonatomic) IBOutlet UILabel *scoreLabel;
 @property (weak, nonatomic) IBOutlet UILabel *resultsLabel;
 @property (strong, nonatomic) CardMatchingGame *game;
-@property (weak, nonatomic) IBOutlet UISegmentedControl *GameMode;
-@property (nonatomic) NSInteger mode;
-@property (strong, nonatomic) NSMutableArray *flipResultsArray;
 @property (weak, nonatomic) IBOutlet UIButton *dealButton;
 @property (weak, nonatomic) IBOutlet UISlider *resultsSlider;
+
+
+@property (strong, nonatomic) NSUserDefaults *defaults;
+
+@property (strong, nonatomic) NSMutableArray *scores;
+
 @end
 
 @implementation CardGameViewController
+
+- (NSMutableArray *) scores
+{
+    if(!_scores)
+    {
+        _scores = [[NSMutableArray alloc] init];
+    }
+    
+    return _scores;
+    
+}
+
+- (NSUserDefaults *) defaults
+{
+    if(!_defaults)
+    {
+        _defaults = [NSUserDefaults standardUserDefaults];
+    }
+    
+    return _defaults;
+    
+}
+
+- (void) viewWillLoad
+{
+    [self.resultsSlider setMinimumValue:1];
+    
+    [self.resultsSlider setMaximumValue:1];
+    
+    [self.resultsSlider setValue:1];
+    
+}
+
 
 - (CardMatchingGame *) game
 {
     if(!_game)
     {
-        _game = [[CardMatchingGame alloc] initWithCardCount:self.cardButtons.count usingDeck:[[PlayingCardDeck alloc] init] usingMode:self.mode];
+        _game = [[CardMatchingGame alloc] initWithCardCount:self.cardButtons.count usingDeck:[[PlayingCardDeck alloc] init]];
     }
     
     return _game;
 }
 
 
-- (NSMutableArray *) flipResultsArray
-{
-    if(!_flipResultsArray)
-    {
-        _flipResultsArray = [[NSMutableArray alloc] init];
-    }
-    
-    return _flipResultsArray;
-}
-
 - (IBAction)slideResults:(id)sender {
     UISlider * slider = (UISlider*) sender;
     
-    int sliderIndex = [slider value]-1;
+    int sliderIndex = [slider value];
     
-    if(self.flipResultsArray.count)
+    if(self.game.results.count)
     {
-        self.resultsLabel.text = [NSString stringWithFormat:@"Results: %@", [self.flipResultsArray objectAtIndex:sliderIndex]];
+        self.resultsLabel.text = [NSString stringWithFormat:@"Results: %@", [self.game.results objectAtIndex:sliderIndex]];
     }
     
-    if(sliderIndex != (self.flipResultsArray.count-1))
+    if(sliderIndex != (self.game.results.count-1))
         self.resultsLabel.alpha = 0.3;
     else 
         self.resultsLabel.alpha = 1;
     
-}
-
-- (NSInteger) mode
-{
-    if(!_mode)
-    {
-        _mode = 0;
-    }
-    
-    return _mode;
 }
 
 - (void) setCardButtons:(NSArray *)cardButtons
@@ -83,18 +101,46 @@
 - (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex
 {
     
+    NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
+    [dateFormatter setDateFormat:@"yyyy-MM-dd 'at' HH:mm.ssss"];
+    NSDate *now = [[NSDate alloc] init];
+    
+    Score *score = [[Score alloc] init];
+    
+    score.score = self.game.score;
+    score.game = @"Match";
+    score.date = [dateFormatter stringFromDate:now];
+    
+    NSString *scoreString = [NSString stringWithFormat:@"[%@][%@] Score: %d\n", score.game,score.date, score.score];
+    
+    NSMutableArray *scores = [[NSMutableArray alloc] init];
+    
+    if([self.defaults objectForKey:@"Scores"])
+    {
+        for(NSString *thing in [self.defaults objectForKey:@"Scores"])
+        {
+            [scores addObject:thing];
+        }
+        
+        [scores addObject:scoreString];
+        [self.defaults setObject:scores forKey:@"Scores"];
+    }
+    else
+    {
+        [scores addObject:scoreString];
+        [self.defaults setObject:scores forKey:@"Scores"];
+    }
+    
+    [self.defaults synchronize];
+    
     NSString *title = [alertView buttonTitleAtIndex:buttonIndex];
     if([title isEqualToString:@"Yes"])
     {
-        self.flipCount = 0;
         [self.resultsSlider setMaximumValue:0];
-        self.flipResultsArray = [[NSMutableArray alloc] init];
-        
-        self.game = [[CardMatchingGame alloc] initWithCardCount:self.cardButtons.count usingDeck:[[PlayingCardDeck alloc] init] usingMode:self.mode];
+        self.game = [[CardMatchingGame alloc] initWithCardCount:self.cardButtons.count usingDeck:[[PlayingCardDeck alloc] init]];
         
         [self updateUI];
-        
-        [self enableGameModeUISegmentedControl];
+
     }
 }
 
@@ -104,11 +150,11 @@
     
     for(UIButton *cardButton in self.cardButtons)
     {
-        Card *card = [self.game cardAtIndex:[self.cardButtons indexOfObject:cardButton]];
+        PlayingCard *card = [self.game cardAtIndex:[self.cardButtons indexOfObject:cardButton]];
         [cardButton setTitle:card.contents forState:UIControlStateSelected];
         [cardButton setTitle:card.contents forState:UIControlStateSelected|UIControlStateDisabled];
         
-        if(card.isFaceUp)
+        if(card.faceUp)
         {
         [cardButton setImage:nil
                     forState:UIControlStateNormal];
@@ -119,56 +165,25 @@
                         forState:UIControlStateNormal];
         }
         
-        cardButton.selected = card.isFaceUp;
-        cardButton.enabled = !card.isUnplayable;
-        cardButton.alpha = card.isUnplayable ? 0.3 : 1.0;
+        cardButton.selected = card.faceUp;
+        cardButton.enabled = !card.unplayable;
+        cardButton.alpha = card.unplayable ? 0.3 : 1.0;
     }
     self.scoreLabel.text = [NSString stringWithFormat:@"Score: %d", self.game.score];
     
-    self.resultsLabel.text = [NSString stringWithFormat:@"Results: %@", self.game.lastFlipResults];
-}
+    self.resultsLabel.text = [NSString stringWithFormat:@"Results: %@", [self.game.results objectAtIndex:self.game.results.count - 1]];
 
-- (void)setFlipCount:(int)flipCount
-{
-    _flipCount = flipCount;
-    self.flipsLabel.text = [NSString stringWithFormat:@"Flips: %d", self.flipCount];
-
+    self.flipsLabel.text = [NSString stringWithFormat:@"Flips: %d", self.game.flips];
 }
 
 - (IBAction)flipCard:(UIButton *)sender
 {
     [self.game flipCardAtIndex:[self.cardButtons indexOfObject:sender]];    
-    self.flipCount++;
     [self.resultsSlider setMaximumValue:[self.resultsSlider maximumValue] + 1];
-    [self.resultsSlider setMinimumValue:1];
     [self.resultsSlider setValue:[self.resultsSlider maximumValue]];
-    [self.flipResultsArray addObject:self.game.lastFlipResults];
     [self updateUI];
-    [self disableGameModeUISegmentedControl];
 }
 
-- (void) enableGameModeUISegmentedControl
-{
-    if (!self.GameMode.enabled) {
-        self.GameMode.enabled = YES;
-    }
-}
-
-- (void) disableGameModeUISegmentedControl
-{
-    if (self.GameMode.enabled) {
-        self.GameMode.enabled = NO;
-    }
-}
-
-- (IBAction)changeGameMode:(id)sender {
-    UISegmentedControl *gameModeUISegmentedControl = (UISegmentedControl *) sender;
-
-    self.mode = [gameModeUISegmentedControl selectedSegmentIndex];
-    
-    [self.game setMode:self.mode];
-    
-}
 
 - (IBAction)Deal:(UIButton *)sender {
     
